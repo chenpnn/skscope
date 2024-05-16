@@ -14,6 +14,7 @@ from sklearn.utils.validation import (
     check_consistent_length,
 )
 from sklearn.utils._param_validation import Hidden, Interval, StrOptions
+from sklearn.cluster import SpectralClustering
 from numbers import Integral, Real
 from scipy import interpolate
 
@@ -697,3 +698,88 @@ class IsotonicRegression(BaseEstimator):
         """
         y_pred = self.transform(X)
         return y_pred
+
+
+
+class SubspaceClustering(BaseEstimator):
+    r"""
+    Sparse Subspace Clustering.
+
+    Parameters
+    -----------
+    sparsity : int, default=5
+        The sparsity level of the matrix C of self-presentention.
+    n_clusters : int, default=3
+        The number of clusters.
+    random_state : int, RandomState instance, default=None
+        A pseudo random number generator used for the initialization of 
+        the lobpcg eigenvectors decomposition and for the K-Means initialization. 
+        Use an int to make the results deterministic across calls.
+    """
+
+    _parameter_constraints: dict = {
+        "sparsity": [Interval(Integral, 1, None, closed="left")],
+        "n_clusters": [Interval(Integral, 1, None, closed="left")],
+    }
+
+    def __init__(
+        self,
+        sparsity=5,
+        n_clusters=3,
+        random_state=None,
+    ):
+        self.sparsity = sparsity
+        self.n_clusters = n_clusters
+        self.random_state = random_state
+
+    def fit(self, X):
+        r"""
+        The fit function is used to cluster the samples and compute their corresponding labels.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Feature matrix.
+        
+        Returns
+        --------
+        self : object
+            Fitted Estimator.
+        """
+        Y = np.array(X).T
+        D, N = Y.shape
+        u_indices = np.triu_indices(N, k=1)
+        l_indices = np.tril_indices(N, k=-1)
+        non_diag_indices = (
+            np.concatenate((u_indices[0], l_indices[0])), 
+            np.concatenate((u_indices[1], l_indices[1]))
+        )
+
+        def custom_objective(params):
+            C = jnp.zeros((N, N))
+            C = C.at[non_diag_indices].set(params)
+            loss = jnp.mean(jnp.square(Y - Y @ C))
+            return loss
+        
+        solver = ScopeSolver(
+            dimensionality=int(N * (N - 1)),
+            sparsity=self.sparsity,
+        )
+
+        params = solver.solve(custom_objective)
+        C = np.zeros((N, N))
+        C[non_diag_indices] = params
+        col_max = np.abs(C).max(axis=0)
+        C[:, col_max > 0] /= col_max[col_max > 0]
+        W = np.abs(C) + np.abs(C.T)
+        self.clustering = SpectralClustering(
+            n_clusters=self.n_clusters,
+            affinity="precomputed",
+            random_state=self.random_state
+        ).fit(W)
+        self.labels_ = self.clustering.labels_
+        return self
+
+
+
+

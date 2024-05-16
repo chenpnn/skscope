@@ -8,6 +8,7 @@ from skscope.skmodel import (
     RobustRegression,
     MultivariateFailure,
     IsotonicRegression,
+    SubspaceClustering,
 )
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
@@ -15,6 +16,7 @@ from sklearn.utils.estimator_checks import check_estimator
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, train_test_split
 from sklearn.feature_selection import SelectFromModel
 from sklearn.neural_network import MLPRegressor
+from sklearn.metrics import adjusted_mutual_info_score
 
 # from sksurv.datasets import load_veterans_lung_cancer
 # from sksurv.preprocessing import OneHotEncoder
@@ -216,3 +218,53 @@ def test_IsotonicRegression():
 
 
 test_IsotonicRegression()
+
+def test_SubspaceClustering():
+    def make_data(N, seed=None):
+        r"""
+        reference: Elhamifar, Ehsan, and René Vidal. 
+        "Sparse subspace clustering: Algorithm, theory, and applications."
+        """
+         
+        np.random.seed(seed)
+        k = int(N / 3)
+        labels = np.array([0, 1, 2] * k)
+        np.random.shuffle(labels)
+
+        S0 = np.array([[0, y, y] for y in np.linspace(-5, 5, k)])
+        S1 = np.array([[0, y, -y] for y in np.linspace(-5, 5, k)])
+        S2 = np.hstack((np.random.uniform(-5, 5, 2 * k).reshape(-1, 2), np.zeros((k, 1))))
+
+        X = np.zeros((N, 3))
+        X[labels==0, :] = S0
+        X[labels==1, :] = S1
+        X[labels==2, :] = S2
+        X += np.random.normal(scale=0.05, size=X.shape)
+
+        return X, labels
+
+    N = 90
+    X, labels_true = make_data(N, seed=0)
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(projection='3d')
+    # colors = ['r', 'g', 'b']
+    # for i in range(3):
+    #     ax.scatter(X[labels_true==i, 0], X[labels_true==i, 1], X[labels_true==i, 2], color=colors[i])
+    # xx, yy = np.meshgrid(np.linspace(-5, 5, 100), np.linspace(-5, 5, 100))
+    # zz = yy * 0
+    # ax.scatter(xx, yy, zz, alpha=0.005, color=colors[-1])
+    # ax.view_init(20, 10)
+    # plt.axis('off')
+    # plt.show()
+
+    sparsity, n_clusters = N * 2, 3
+    model = SubspaceClustering(sparsity = sparsity,  n_clusters=n_clusters, random_state=0)
+    model = model.fit(X)
+    labels_pred = model.labels_
+
+    score = adjusted_mutual_info_score(labels_true, labels_pred)
+    assert score >= 0.6
+    print("SubspaceClustering passed test!")
+
+test_SubspaceClustering()
